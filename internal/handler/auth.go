@@ -8,27 +8,48 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type signUpInput struct {
+	UserName  string `json:"username" binding:"required"`
+	Password  string `json:"password" binding:"required,min=8"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
 func (h *Handler) SignUp(c *gin.Context) {
-	var input models.User
+	var input signUpInput
 
 	if err := c.BindJSON(&input); err != nil {
-		newErrorResponse(c, http.StatusBadRequest, "invalid input body")
+		newErrorResponse(c, http.StatusBadRequest, "invalid input body: "+err.Error())
 		return
 	}
 
-	_, err := h.services.Authorization.CreateUser(input)
-	if err != nil {
-		newErrorResponse(c, http.StatusInternalServerError, err.Error())
-		return
+	user := models.User{
+		UserName:  input.UserName,
+		Password:  input.Password, // Password will be hashed in the service layer
+		FirstName: input.FirstName,
+		LastName:  input.LastName,
 	}
-	token, err := service.GenerateJWT(input)
-	if err != nil {
-		newErrorResponse(c, http.StatusInternalServerError, "failed to generate token")
-		return
-	}
-	c.JSON(http.StatusOK, map[string]interface{}{
-		"token": token,
+
+	// Use type assertion to call the Register method
+	authService, ok := h.services.Authorization.(interface {
+		Register(user models.User) (service.AuthResponse, error)
 	})
+	if !ok {
+		newErrorResponse(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	resp, err := authService.Register(user)
+	if err != nil {
+		if err.Error() == "user with this username already exists" {
+			newErrorResponse(c, http.StatusConflict, err.Error())
+		} else {
+			newErrorResponse(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 type signInInput struct {
@@ -44,19 +65,21 @@ func (h *Handler) SignIn(c *gin.Context) {
 		return
 	}
 
-	user, err := h.services.Authorization.GetUser(input.UserName, input.Password)
+	// Use type assertion to call the Login method
+	authService, ok := h.services.Authorization.(interface {
+		Login(username, password string) (service.AuthResponse, error)
+	})
+	if !ok {
+		newErrorResponse(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	resp, err := authService.Login(input.UserName, input.Password)
 	if err != nil {
+		// Return unauthorized for invalid credentials
 		newErrorResponse(c, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
-	token, err := service.GenerateJWT(user)
-	if err != nil {
-		newErrorResponse(c, http.StatusInternalServerError, "failed to generate token")
-		return
-	}
-
-	c.JSON(http.StatusOK, map[string]interface{}{
-		"token": token,
-	})
+	c.JSON(http.StatusOK, resp)
 }

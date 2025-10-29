@@ -7,7 +7,8 @@ import (
 
 type Authorization interface {
 	CreateUser(user models.User) (int, error)
-	GetUser(username, password string) (models.User, error)
+	GetUserByUsername(username string) (models.User, error)
+	GetUser(username, password string) (models.User, error) // Deprecated: Use GetUserByUsername and compare password hash instead
 }
 type Orders interface {
 	CreateOrder(models.Order) (int, error)
@@ -22,6 +23,7 @@ type Repository struct {
 	Authorization
 	Orders
 	Withdrawals
+	Balance BalanceRepository
 }
 
 func NewRepository(db *sqlx.DB) *Repository {
@@ -29,5 +31,6 @@ func NewRepository(db *sqlx.DB) *Repository {
 		Authorization: NewAuthPostgres(db),
 		Orders:        NewOrdersPostgres(db),
 		Withdrawals:   NewWithdrawalsPostgres(db),
+		Balance:       NewBalanceRepository(db),
 	}
 }

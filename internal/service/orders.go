@@ -1,9 +1,9 @@
 package service
 
 import (
-	"errors"
 	"time"
 
+	"github.com/Aleksey170999/go-loyaty/internal/apperror"
 	"github.com/Aleksey170999/go-loyaty/internal/models"
 	"github.com/Aleksey170999/go-loyaty/internal/repository"
 )
@@ -25,48 +25,49 @@ func NewOrdersService(repo repository.Orders) *OrdersService {
 
 }
 
-type OrderStatus int
-
+// Order status constants
 const (
-	New        string = "NEW"
-	Processing string = "PROCESSING"
-	Invalid    string = "INVALID"
-	Processed  string = "PROCESSED"
-)
-
-var (
-	ErrInvalidOrderNumber = errors.New("invalid order number format")
-	ErrOrderByUserExists  = errors.New("order already uploaded by this user")
-	ErrOrderByOtherExists = errors.New("order already uploaded by another user")
+	StatusNew        = "NEW"
+	StatusProcessing = "PROCESSING"
+	StatusInvalid    = "INVALID"
+	StatusProcessed  = "PROCESSED"
 )
 
 func (s *OrdersService) CreateOrder(orderNumber string, userID int) (int, error) {
+
 	order, found, err := s.repo.FindOrderByNumber(orderNumber)
-	if err != nil && found {
-		return 0, err
+	if err != nil {
+		return 0, apperror.Wrap(err, "failed to find order", 0)
 	}
+
 	if found {
 		if order.UserID == userID {
-			return 0, ErrOrderByUserExists
-		} else {
-			return 0, ErrOrderByOtherExists
+			return 0, apperror.ErrOrderByUserExists
 		}
+		return 0, apperror.ErrOrderByOtherExists
 	}
+
 	newOrder := models.Order{
 		Number:    orderNumber,
-		Status:    New,
+		Status:    StatusNew,
 		Accural:   0,
 		UpdatedAt: time.Now(),
 		CreatedAt: time.Now(),
 		UserID:    userID,
 	}
-	return s.repo.CreateOrder(newOrder)
+
+	id, err := s.repo.CreateOrder(newOrder)
+	if err != nil {
+		return 0, apperror.Wrap(err, "failed to create order", 0)
+	}
+
+	return id, nil
 }
 
 func (s *OrdersService) GetOrdersList(userID int) ([]models.Order, error) {
 	orders, err := s.repo.GetOrdersByUserID(userID)
 	if err != nil {
-		return nil, err
+		return nil, apperror.Wrap(err, "failed to get orders list", 0)
 	}
 	return orders, nil
 }
@@ -74,7 +75,7 @@ func (s *OrdersService) GetOrdersList(userID int) ([]models.Order, error) {
 func (s *OrdersService) GetOrderInfo(orderNumber string) (*models.Order, error) {
 	order, err := s.repo.GetOrderInfo(orderNumber)
 	if err != nil {
-		return nil, err
+		return nil, apperror.Wrap(err, "failed to get order info", 0)
 	}
 	return order, nil
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/pressly/goose"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	config "github.com/Aleksey170999/go-loyaty/configs"
 	"github.com/Aleksey170999/go-loyaty/internal/handler"
@@ -21,38 +22,49 @@ import (
 func main() {
 	cfg := config.NewConfig()
 
-	logrus.SetFormatter(new(logrus.JSONFormatter))
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+
+	if cfg.JWTSecret == "" {
+		logger.Fatal("JWT_SECRET is not set")
+	}
 
 	db, err := repository.NewPostgresDB(cfg.DatabaseDSN)
 	if err != nil {
-		logrus.Fatalf("failed to initialize db: %s", err.Error())
+		logger.Fatal("failed to initialize db", zap.Error(err))
 	}
 	err = ApplyMigrations(db.DB)
 	if err != nil {
-		fmt.Println(err)
+		logger.Fatal(err.Error())
 	}
 	repos := repository.NewRepository(db)
-	services := service.NewService(repos)
-	handlers := handler.NewHandler(services)
+	services := service.NewService(repos, cfg.JWTSecret)
+	handlers := handler.NewHandler(services, services.JWTService, logger)
 
 	srv := new(srv.Server)
 	go func() {
+		logger.Info("Starting server", zap.String("address", cfg.RunAddr))
 		if err := srv.Run(cfg.RunAddr, handlers.InitRoutes()); err != nil {
-			logrus.Fatalf("error occured while running http server: %s", err.Error())
+			logger.Fatal("failed to run server", zap.Error(err))
 		}
 	}()
 
-	logrus.Print("TodoApp Started")
+	logger.Info("Application started")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
-	logrus.Print("TodoApp Shutting Down")
+	logger.Info("Shutting down server...")
 
 	if err := srv.Shutdown(context.Background()); err != nil {
-		logrus.Errorf("error occured on server shutting down: %s", err.Error())
+		logger.Error("error occurred during server shutdown", zap.Error(err))
 	}
+
+	logger.Info("Server stopped")
 
 	if err := db.Close(); err != nil {
 		logrus.Errorf("error occured on db connection close: %s", err.Error())

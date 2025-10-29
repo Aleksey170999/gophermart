@@ -5,18 +5,27 @@ import (
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.uber.org/zap"
 )
 
 type Handler struct {
-	services *service.Service
+	services   *service.Service
+	jwtService *service.JWTService
+	logger     *zap.Logger
 }
 
-func NewHandler(services *service.Service) *Handler {
-	return &Handler{services: services}
+func NewHandler(services *service.Service, jwtService *service.JWTService, logger *zap.Logger) *Handler {
+	return &Handler{
+		services:   services,
+		jwtService: jwtService,
+		logger:     logger,
+	}
 }
 
 func (h *Handler) InitRoutes() *gin.Engine {
 	router := gin.New()
+
+	jwtMiddleware := NewJWTMiddleware(h.jwtService)
 
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
@@ -26,7 +35,8 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		auth.POST("/login", h.SignIn)
 	}
 
-	authorized := router.Group("/api", JWTAuthMiddleware())
+	authorized := router.Group("/api")
+	authorized.Use(jwtMiddleware.Auth())
 	{
 		user := authorized.Group("/user")
 		{
